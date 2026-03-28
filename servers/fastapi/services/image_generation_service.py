@@ -11,6 +11,7 @@ from models.sql.image_asset import ImageAsset
 from utils.get_env import (
     get_dall_e_3_quality_env,
     get_gpt_image_1_5_quality_env,
+    get_kie_ai_api_key_env,
     get_pexels_api_key_env,
 )
 from utils.get_env import get_pixabay_api_key_env
@@ -177,10 +178,60 @@ class ImageGenerationService:
     async def generate_image_nanobanana_pro(
         self, prompt: str, output_directory: str
     ) -> str:
-        """Generate image using NanoBanana Pro (gemini-3-pro-image-preview)."""
-        return await self._generate_image_google(
-            prompt, output_directory, "gemini-3-pro-image-preview"
-        )
+        """Generate image using Nano Banana 2 via kie.ai API."""
+        api_key = get_kie_ai_api_key_env()
+        if not api_key:
+            raise ValueError("KIE_AI_API_KEY environment variable is not set")
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        payload = {
+            "model": "nano-banana-2",
+            "input": {
+                "prompt": prompt,
+                "aspect_ratio": "16:9",
+                "resolution": "1K",
+                "output_format": "jpg",
+            },
+        }
+
+        async with aiohttp.ClientSession(trust_env=True) as session:
+            # Step 1: Create generation task
+            response = await session.post(
+                "https://api.kie.ai/api/v1/jobs/createTask",
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            )
+            data = await response.json()
+            if data.get("code") != 200:
+                raise Exception(f"Kie.ai task creation failed: {data.get('msg')}")
+            task_id = data["data"]["taskId"]
+
+            # Step 2: Poll for completion
+            for _ in range(60):
+                await asyncio.sleep(5)
+                poll = await session.get(
+                    f"https://api.kie.ai/api/v1/jobs/recordInfo?taskId={task_id}",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                )
+                poll_data = await poll.json()
+                state = poll_data.get("data", {}).get("state")
+                if state == "success":
+                    result_json = json.loads(poll_data["data"]["resultJson"])
+                    image_url = result_json["resultUrls"][0]
+                    break
+                elif state == "fail":
+                    raise Exception(f"Kie.ai generation failed: {poll_data['data'].get('failMsg')}")
+            else:
+                raise Exception("Kie.ai image generation timed out after 300s")
+
+            # Step 3: Download image
+            img_response = await session.get(image_url, timeout=aiohttp.ClientTimeout(total=60))
+            image_path = os.path.join(output_directory, f"{uuid.uuid4()}.jpg")
+            with open(image_path, "wb") as f:
+                f.write(await img_response.read())
+            return image_path
 
     async def get_image_from_pexels(self, prompt: str) -> str:
         async with aiohttp.ClientSession(trust_env=True) as session:

@@ -74,12 +74,12 @@ export const IMAGE_PROVIDERS: Record<string, ImageProviderOption> = {
   },
   nanobanana_pro: {
     value: "nanobanana_pro",
-    label: "NanoBanana Pro",
-    description: "Google's advanced image generation model",
-    icon: "/icons/google.png",
+    label: "Nano Banana 2",
+    description: "High quality, fast image generation via Kie.ai",
+    icon: "/icons/custom.png",
     requiresApiKey: true,
-    apiKeyField: "GOOGLE_API_KEY",
-    apiKeyFieldLabel: "Google API Key",
+    apiKeyField: "KIE_AI_API_KEY",
+    apiKeyFieldLabel: "Kie.ai API Key",
   },
   comfyui: {
     value: "comfyui",

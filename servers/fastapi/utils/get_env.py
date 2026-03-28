@@ -85,6 +85,10 @@ def get_pixabay_api_key_env():
     return os.getenv("PIXABAY_API_KEY")
 
 
+def get_kie_ai_api_key_env():
+    return os.getenv("KIE_AI_API_KEY")
+
+
 def get_tool_calls_env():
     return os.getenv("TOOL_CALLS")
 
