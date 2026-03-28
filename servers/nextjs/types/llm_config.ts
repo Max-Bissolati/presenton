@@ -28,6 +28,9 @@ export interface LLMConfig {
   PEXELS_API_KEY?: string;
   PIXABAY_API_KEY?: string;
 
+  // Kie.ai (Nano Banana 2)
+  KIE_AI_API_KEY?: string;
+
   // ComfyUI
   COMFYUI_URL?: string;
   COMFYUI_WORKFLOW?: string;

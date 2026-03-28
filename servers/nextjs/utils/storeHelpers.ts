@@ -82,7 +82,7 @@ export const hasValidLLMConfig = (llmConfig: LLMConfig) => {
       case "gemini_flash":
         return llmConfig.GOOGLE_API_KEY && llmConfig.GOOGLE_API_KEY !== "";
       case "nanobanana_pro":
-        return llmConfig.GOOGLE_API_KEY && llmConfig.GOOGLE_API_KEY !== "";
+        return llmConfig.KIE_AI_API_KEY && llmConfig.KIE_AI_API_KEY !== "";
       case "comfyui":
         return llmConfig.COMFYUI_URL && llmConfig.COMFYUI_URL !== "";
       default:

@@ -32,6 +32,9 @@ class UserConfig(BaseModel):
     PEXELS_API_KEY: Optional[str] = None
     PIXABAY_API_KEY: Optional[str] = None
 
+    # Kie.ai (Nano Banana 2)
+    KIE_AI_API_KEY: Optional[str] = None
+
     # ComfyUI
     COMFYUI_URL: Optional[str] = None
     COMFYUI_WORKFLOW: Optional[str] = None
