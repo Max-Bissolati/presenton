@@ -19,7 +19,7 @@ from utils.get_env import (
     get_comfyui_url_env,
     get_comfyui_workflow_env,
 )
-from utils.get_env import get_google_api_key_env
+from utils.get_env import get_google_api_key_env, get_kie_ai_api_key_env
 from utils.get_env import get_ollama_model_env
 from utils.get_env import get_custom_llm_api_key_env
 from utils.get_env import get_custom_llm_url_env
@@ -128,13 +128,15 @@ async def check_llm_and_image_provider_api_or_model_availability():
             if not pixabay_api_key:
                 raise Exception("PIXABAY_API_KEY must be provided")
 
-        elif (
-            selected_image_provider == ImageProvider.GEMINI_FLASH
-            or selected_image_provider == ImageProvider.NANOBANANA_PRO
-        ):
+        elif selected_image_provider == ImageProvider.GEMINI_FLASH:
             google_api_key = get_google_api_key_env()
             if not google_api_key:
                 raise Exception("GOOGLE_API_KEY must be provided")
+
+        elif selected_image_provider == ImageProvider.NANOBANANA_PRO:
+            kie_ai_api_key = get_kie_ai_api_key_env()
+            if not kie_ai_api_key:
+                raise Exception("KIE_AI_API_KEY must be provided")
 
         elif (
             selected_image_provider == ImageProvider.DALLE3
