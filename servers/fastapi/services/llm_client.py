@@ -1662,6 +1662,9 @@ class LLMClient:
         current_arguments = None
 
         has_response_schema_tool_call = False
+        # CUSTOM: buffer content chunks when using tool calls — some providers
+        # (e.g. GLM-5.1) return JSON in delta.content instead of calling the tool.
+        content_buffer: List[str] = []
         async for event in await client.chat.completions.create(
             model=model,
             messages=[message.model_dump() for message in messages],
@@ -1689,8 +1692,11 @@ class LLMClient:
                 continue
 
             content_chunk = event.choices[0].delta.content
-            if content_chunk and not use_tool_calls_for_structured_output:
-                yield content_chunk
+            if content_chunk:
+                if not use_tool_calls_for_structured_output:
+                    yield content_chunk
+                else:
+                    content_buffer.append(content_chunk)
 
             tool_call_chunk = event.choices[0].delta.tool_calls
             if tool_call_chunk:
@@ -1738,6 +1744,11 @@ class LLMClient:
                     ),
                 )
             )
+
+        # CUSTOM: if no ResponseSchema tool call was made, fall back to content buffer
+        if use_tool_calls_for_structured_output and not has_response_schema_tool_call and content_buffer:
+            yield "".join(content_buffer)
+            return
 
         if tool_calls and not has_response_schema_tool_call:
             tool_call_messages = await self.tool_calls_handler.handle_tool_calls_openai(
