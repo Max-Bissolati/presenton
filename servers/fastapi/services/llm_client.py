@@ -1055,17 +1055,27 @@ class LLMClient:
         strict: bool = False,
         max_tokens: Optional[int] = None,
         depth: int = 0,
-    ):
-        extra_body = {"enable_thinking": False} if self.disable_thinking() else None
-        return await self._generate_openai_structured(
+    ) -> dict | None:
+        # CUSTOM: GLM-5.1 (Z.AI) doesn't reliably return tool calls in non-streaming
+        # mode. Reuse the streaming path and accumulate, same as _generate_codex_structured.
+        accumulated: List[str] = []
+        async for chunk in self._stream_custom_structured(
             model=model,
             messages=messages,
             response_format=response_format,
             strict=strict,
             max_tokens=max_tokens,
-            extra_body=extra_body,
             depth=depth,
-        )
+        ):
+            accumulated.append(chunk)
+
+        raw = "".join(accumulated)
+        if not raw:
+            return None
+
+        if depth == 0:
+            return dict(dirtyjson.loads(raw))
+        return {"raw": raw}
 
     async def generate_structured(
         self,
