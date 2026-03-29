@@ -1057,14 +1057,20 @@ class LLMClient:
         depth: int = 0,
     ) -> dict | None:
         # CUSTOM: GLM-5.1 (Z.AI) doesn't support json_schema response_format and is
-        # inconsistent with tool calls. Use a plain completion — the system prompt
-        # already instructs the model to return JSON output.
+        # inconsistent with tool calls. Use a plain completion and inject the schema
+        # as an explicit JSON instruction so GLM knows what structure to return.
         client: AsyncOpenAI = self._client
         extra_body = {"enable_thinking": False} if self.disable_thinking() else None
 
+        schema_hint = json.dumps(response_format, separators=(",", ":"))
+        json_instruction = LLMUserMessage(
+            content=f"Respond with valid JSON only matching this schema. No markdown fences, no explanation, just the JSON object:\n{schema_hint}"
+        )
+        messages_with_schema = list(messages) + [json_instruction]
+
         response = await client.chat.completions.create(
             model=model,
-            messages=[message.model_dump() for message in messages],
+            messages=[message.model_dump() for message in messages_with_schema],
             max_completion_tokens=max_tokens,
             extra_body=extra_body,
         )
@@ -1076,7 +1082,16 @@ class LLMClient:
         if not content or not content.strip():
             return None
 
-        print(f"[DEBUG _generate_custom_structured] raw[:300]={content[:300]!r}")
+        # CUSTOM: GLM-5.1 sometimes wraps JSON in markdown code fences — strip them
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[-1]  # drop ```json line
+            content = content.rsplit("```", 1)[0]  # drop closing ```
+            content = content.strip()
+
+        if not content:
+            return None
+
         if depth == 0:
             return dict(dirtyjson.loads(content))
         return content
