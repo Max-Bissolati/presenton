@@ -1073,6 +1073,7 @@ class LLMClient:
         if not raw:
             return None
 
+        print(f"[DEBUG _generate_custom_structured] raw[:500]={raw[:500]!r}")
         if depth == 0:
             return dict(dirtyjson.loads(raw))
         return {"raw": raw}
