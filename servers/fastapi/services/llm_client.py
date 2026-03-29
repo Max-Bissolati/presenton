@@ -1056,27 +1056,30 @@ class LLMClient:
         max_tokens: Optional[int] = None,
         depth: int = 0,
     ) -> dict | None:
-        # CUSTOM: GLM-5.1 (Z.AI) doesn't reliably return tool calls in non-streaming
-        # mode. Reuse the streaming path and accumulate, same as _generate_codex_structured.
-        accumulated: List[str] = []
-        async for chunk in self._stream_custom_structured(
-            model=model,
-            messages=messages,
-            response_format=response_format,
-            strict=strict,
-            max_tokens=max_tokens,
-            depth=depth,
-        ):
-            accumulated.append(chunk)
+        # CUSTOM: GLM-5.1 (Z.AI) doesn't support json_schema response_format and is
+        # inconsistent with tool calls. Use a plain completion — the system prompt
+        # already instructs the model to return JSON output.
+        client: AsyncOpenAI = self._client
+        extra_body = {"enable_thinking": False} if self.disable_thinking() else None
 
-        raw = "".join(accumulated)
-        if not raw:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[message.model_dump() for message in messages],
+            max_completion_tokens=max_tokens,
+            extra_body=extra_body,
+        )
+
+        if not response.choices:
             return None
 
-        print(f"[DEBUG _generate_custom_structured] raw[:500]={raw[:500]!r}")
+        content = response.choices[0].message.content
+        if not content or not content.strip():
+            return None
+
+        print(f"[DEBUG _generate_custom_structured] raw[:300]={content[:300]!r}")
         if depth == 0:
-            return dict(dirtyjson.loads(raw))
-        return {"raw": raw}
+            return dict(dirtyjson.loads(content))
+        return content
 
     async def generate_structured(
         self,
