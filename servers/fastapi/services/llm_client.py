@@ -1096,6 +1096,77 @@ class LLMClient:
             return dict(dirtyjson.loads(content))
         return content
 
+    async def _stream_custom_structured_tokens(
+        self,
+        model: str,
+        messages: List[LLMMessage],
+        response_format: dict,
+    ) -> AsyncGenerator[str, None]:
+        # CUSTOM: Stream raw JSON tokens for slide content generation.
+        # Mirrors _generate_custom_structured but uses stream=True so the
+        # frontend can show a progressive "typing" effect as each slide builds.
+        client: AsyncOpenAI = self._client
+        extra_body = {"enable_thinking": False} if self.disable_thinking() else None
+
+        schema_hint = json.dumps(response_format, separators=(",", ":"))
+        json_instruction = LLMUserMessage(
+            content=f"Respond with valid JSON only matching this schema. No markdown fences, no explanation, just the JSON object:\n{schema_hint}"
+        )
+        messages_with_schema = list(messages) + [json_instruction]
+
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=[message.model_dump() for message in messages_with_schema],
+            stream=True,
+            extra_body=extra_body,
+        )
+
+        # Buffer the first few tokens to detect and skip any markdown fence prefix
+        # (e.g. ```json\n) that GLM sometimes emits despite the instruction.
+        prefix_buffer = ""
+        json_started = False
+
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            token = chunk.choices[0].delta.content
+            if not token:
+                continue
+
+            if json_started:
+                yield token
+            else:
+                prefix_buffer += token
+                brace_idx = prefix_buffer.find("{")
+                if brace_idx != -1:
+                    json_started = True
+                    yield prefix_buffer[brace_idx:]
+                    prefix_buffer = ""
+
+    async def stream_structured_tokens(
+        self,
+        model: str,
+        messages: List[LLMMessage],
+        response_format: dict,
+    ) -> AsyncGenerator[str, None]:
+        # CUSTOM: Yields raw JSON tokens for the given structured request.
+        # Only the CUSTOM provider gets true streaming; all others fall back to
+        # a single yield of the complete JSON so callers work uniformly.
+        if self.llm_provider == LLMProvider.CUSTOM:
+            async for token in self._stream_custom_structured_tokens(
+                model, messages, response_format
+            ):
+                yield token
+        else:
+            content = await self.generate_structured(
+                model=model,
+                messages=messages,
+                response_format=response_format,
+                strict=False,
+            )
+            if content:
+                yield json.dumps(content, separators=(",", ":"))
+
     async def generate_structured(
         self,
         model: str,

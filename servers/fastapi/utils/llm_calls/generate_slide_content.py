@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import AsyncGenerator, Optional
 from models.llm_message import LLMSystemMessage, LLMUserMessage
 from models.presentation_layout import SlideLayoutModel
 from models.presentation_outline_model import SlideOutlineModel
@@ -149,4 +149,46 @@ async def get_slide_content_from_type_and_outline(
 
     except Exception as e:
         print(f"get_slide_content_from_type_and_outline: exception={e}")
+        raise handle_llm_client_exceptions(e)
+
+
+async def stream_slide_content_tokens(
+    slide_layout: SlideLayoutModel,
+    outline: SlideOutlineModel,
+    language: str,
+    tone: Optional[str] = None,
+    verbosity: Optional[str] = None,
+    instructions: Optional[str] = None,
+) -> AsyncGenerator[str, None]:
+    """Yield raw JSON tokens for slide content so the frontend can show a
+    progressive typing effect as each slide is generated."""
+    client = LLMClient()
+    model = get_model()
+
+    response_schema = remove_fields_from_schema(
+        slide_layout.json_schema, ["__image_url__", "__icon_url__"]
+    )
+    response_schema = add_field_in_schema(
+        response_schema,
+        {
+            "__speaker_note__": {
+                "type": "string",
+                "minLength": 100,
+                "maxLength": 250,
+                "description": "Speaker note for the slide",
+            }
+        },
+        True,
+    )
+
+    messages = get_messages(outline.content, language, tone, verbosity, instructions)
+
+    try:
+        async for token in client.stream_structured_tokens(
+            model=model,
+            messages=messages,
+            response_format=response_schema,
+        ):
+            yield token
+    except Exception as e:
         raise handle_llm_client_exceptions(e)

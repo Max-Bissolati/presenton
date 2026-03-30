@@ -18,6 +18,7 @@ export const usePresentationStreaming = (
 ) => {
   const dispatch = useDispatch();
   const previousSlidesLength = useRef(0);
+  const lastDispatchTime = useRef(0);
 
   useEffect(() => {
     let eventSource: EventSource;
@@ -39,15 +40,15 @@ export const usePresentationStreaming = (
         switch (data.type) {
           case "chunk":
             accumulatedChunks += data.chunk;
-            try {
-              const repairedJson = jsonrepair(accumulatedChunks);
-              const partialData = JSON.parse(repairedJson);
+            // Throttle to ~20 updates/second to show progressive typing without
+            // flooding React with re-renders on every single token.
+            const now = Date.now();
+            if (now - lastDispatchTime.current > 50) {
+              try {
+                const repairedJson = jsonrepair(accumulatedChunks);
+                const partialData = JSON.parse(repairedJson);
 
-              if (partialData.slides) {
-                if (
-                  partialData.slides.length !== previousSlidesLength.current &&
-                  partialData.slides.length > 0
-                ) {
+                if (partialData.slides && partialData.slides.length > 0) {
                   dispatch(
                     setPresentationData({
                       ...partialData,
@@ -57,9 +58,10 @@ export const usePresentationStreaming = (
                   previousSlidesLength.current = partialData.slides.length;
                   setLoading(false);
                 }
+              } catch (error) {
+                // JSON isn't complete yet, continue accumulating
               }
-            } catch (error) {
-              // JSON isn't complete yet, continue accumulating
+              lastDispatchTime.current = now;
             }
             break;
 

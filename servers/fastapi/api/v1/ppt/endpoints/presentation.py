@@ -56,6 +56,7 @@ from utils.llm_calls.generate_presentation_structure import (
 )
 from utils.llm_calls.generate_slide_content import (
     get_slide_content_from_type_and_outline,
+    stream_slide_content_tokens,
 )
 from utils.ppt_utils import (
     get_presentation_title_from_outlines,
@@ -293,20 +294,68 @@ async def stream_presentation(
         for i, slide_layout_index in enumerate(structure.slides):
             slide_layout = layout.slides[slide_layout_index]
 
+            # Assign ID now so the prefix JSON and the final SlideModel share it.
+            slide_id = uuid.uuid4()
+
+            # Yield slide wrapper prefix with all metadata fields known up-front.
+            # We open the "content" key but don't close the object yet — GLM
+            # tokens for content will stream in next.
+            partial_slide = {
+                "id": str(slide_id),
+                "presentation": str(id),
+                "layout_group": layout.name,
+                "layout": slide_layout.id,
+                "index": i,
+                "html_content": None,
+                "speaker_note": None,
+                "properties": None,
+            }
+            # json.dumps gives '{"id":...}' — drop the closing } to append content
+            prefix_str = json.dumps(partial_slide, separators=(",", ":"))[:-1]
+            prefix_str += ',"content":'
+            yield SSEResponse(
+                event="response",
+                data=json.dumps({"type": "chunk", "chunk": prefix_str}),
+            ).to_string()
+
+            # Stream GLM tokens for the content dict token-by-token.
+            content_tokens: List[str] = []
             try:
-                slide_content = await get_slide_content_from_type_and_outline(
+                async for token in stream_slide_content_tokens(
                     slide_layout,
                     outline.slides[i],
                     presentation.language,
                     presentation.tone,
                     presentation.verbosity,
                     presentation.instructions,
-                )
+                ):
+                    content_tokens.append(token)
+                    yield SSEResponse(
+                        event="response",
+                        data=json.dumps({"type": "chunk", "chunk": token}),
+                    ).to_string()
             except HTTPException as e:
                 yield SSEErrorResponse(detail=e.detail).to_string()
                 return
 
+            # Close the slide object in the accumulated JSON stream.
+            yield SSEResponse(
+                event="response",
+                data=json.dumps({"type": "chunk", "chunk": "}"}),
+            ).to_string()
+
+            # Parse the collected content for backend DB + asset processing.
+            full_content_str = "".join(content_tokens).strip()
+            if full_content_str.startswith("```"):
+                full_content_str = full_content_str.split("\n", 1)[-1]
+                full_content_str = full_content_str.rsplit("```", 1)[0].strip()
+            try:
+                slide_content = dict(dirtyjson.loads(full_content_str)) if full_content_str else {}
+            except Exception:
+                slide_content = {}
+
             slide = SlideModel(
+                id=slide_id,
                 presentation=id,
                 layout_group=layout.name,
                 layout=slide_layout.id,
@@ -323,11 +372,6 @@ async def stream_presentation(
             async_assets_generation_tasks.append(
                 asyncio.create_task(process_slide_and_fetch_assets(image_generation_service, slide))
             )
-
-            yield SSEResponse(
-                event="response",
-                data=json.dumps({"type": "chunk", "chunk": slide.model_dump_json()}),
-            ).to_string()
 
         yield SSEResponse(
             event="response",
